@@ -38,18 +38,19 @@ import sys
 import errno
 
 # Define all functioins
-# cart3d --------------------------------------------------------------------
+# cart3d -------------------------------------------------------------------
+# Convert spherical to cartersian coordinates-
 # Inputs: spherical coordinates r(no unit), theta(degrees), phi(degrees)
 # Output: Cartesian coordinates x, y, z, all having the same unit as input r
+# Note: Inputs can be ordinary numbers or arrays
 # --------------------------------------------------------------------------- 
 def cart3d(r, theta, phi):
-    theta_rad = theta * math.pi / 180
-    phi_rad = phi * math.pi / 180
-    x = r * math.cos(theta_rad) * math.sin(phi_rad)
-    y = r * math.sin(theta_rad) * math.sin(phi_rad)
-    z = math.cos(phi_rad)
-    v = np.array([[x,y,z]]).T
-    return v
+    theta_rad = theta * np.pi / 180
+    phi_rad = phi * np.pi / 180
+    x = r * np.cos(theta_rad) * np.sin(phi_rad)
+    y = r * np.sin(theta_rad) * np.sin(phi_rad)
+    z = r * np.cos(phi_rad)
+    return x, y, z
 
 # Define a rectangular surface
 # Steps
@@ -62,10 +63,10 @@ def cart3d(r, theta, phi):
 #    point
 
 # Parameters of the rectangular LED mat light source
-led_mat_rows = 4 # no unit. Must be an integer
-led_mat_cols = 4 # no unit. Must be an integer
+led_mat_rows = 10 # no unit. Must be an integer
+led_mat_cols = 10 # no unit. Must be an integer
 num_leds = led_mat_rows * led_mat_cols # number of LEDs; one LED at every intersection of a column and a row
-led_mat_len = 4 # meters
+led_mat_len = 0.3 # meters
 led_mat_wid = led_mat_len * led_mat_rows / led_mat_cols # meters
 
 # Individual LED parameters 
@@ -76,11 +77,13 @@ led_max_output = 100 # lumens per LED
 r_1, theta_1, phi_1 = 1, 45, 0 # One of the vectors lying on the plane, when the plane's center is 
                                # mapped to the origin
 r_2, theta_2, phi_2 = 1, 45, 90 # The second vector
-mat_dist = np.array([[0.5], [0.5], [0]]) # meters. How far is the center of the mat away from the origin
+mat_dist = np.array([[1, 1, 0]]).T # meters. How far is the center of the mat away from the origin
 
 # Generate LED mat surface coordinates
-v1 = cart3d(r_1, theta_1, phi_1) # Convert to cartesian coordiantes
-v2 = cart3d(r_2, theta_2, phi_2)
+x1, y1, z1 = cart3d(r_1, theta_1, phi_1) # Convert to cartesian coordiantes
+x2, y2, z2 = cart3d(r_2, theta_2, phi_2)
+v1 = np.array([[x1,y1,z1]]).T
+v2 = np.array([[x2,y2,z2]]).T
 if round(np.vdot(v1, v2), 10) != 0: # If the vectors aren't orthogonal to each other..
                                     # The rounding is done because sin (cos) functions involved
                                     # converting spherical to carterisan coordinates do not return
@@ -119,16 +122,31 @@ for row in range(0, led_mat_rows):
 led_x = led_x + mat_dist[0,0]
 led_y = led_y + mat_dist[1,0]
 led_z = led_z + mat_dist[2,0]
-     
+
+# Define the surface of the sphere
+s_centre = np.array([[0,0,0]]).T # Sphere center 
+s_radius = 0.3 # meters. Radius of the sphere
+pixel_step = 20 # degrees. The granularity of theta, phi variations (lat, lon)
+pix_thetas = np.arange(start = 0, stop = 360, step = pixel_step)
+pix_phis = np.arange(start = 0, stop = 360, step = pixel_step)
+pix_thetas, pix_phis = np.meshgrid(pix_thetas, pix_phis)
+pix_x, pix_y, pix_z = cart3d(r = s_radius, theta = pix_thetas, phi = pix_phis)
+pix_x = pix_x + s_centre[0,0] # Translate all points from origin reference point to the actual center of the sphere
+pix_y = pix_y + s_centre[1,0]
+pix_z = pix_z + s_centre[2,0]
+
 # Visualization
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d') 
 led_wf = ax.plot_wireframe(X = led_x, Y = led_y, Z = led_z, color = 'black')
+sphere_wf = ax.plot_wireframe(X = pix_x, Y = pix_y, Z = pix_z, color = 'blue')
 
 # Customize the z axis.
-#ax.set_zlim(-1.01, 1.01)
-ax.zaxis.set_major_locator(LinearLocator(10))
-ax.zaxis.set_major_formatter(FormatStrFormatter('%.02f'))
+ax.set_xlim(-3, 3)
+ax.set_ylim(-3, 3)
+ax.set_zlim(-3, 3)
+#ax.zaxis.set_major_locator(LinearLocator(10))
+#ax.zaxis.set_major_formatter(FormatStrFormatter('%.02f'))
 
 # Add a color bar which maps values to colors.
 # fig.colorbar(surf, shrink=0.5, aspect=5)
