@@ -122,7 +122,7 @@ led_x = np.empty([led_mat_rows, led_mat_cols]) # These matrices are for visualiz
 led_y = np.empty([led_mat_rows, led_mat_cols]) 
 led_z = np.empty([led_mat_rows, led_mat_cols])
 
-left_top_corner = v1 * (led_mat_len/2) + v2 * (led_mat_wid/2)
+left_top_corner = v1 * (led_mat_len/2) + v2 * (led_mat_wid/2) # Generate physical location coordinates
 col_step = v1 * led_mat_len/(led_mat_cols - 1)
 row_step = v2 * led_mat_wid/(led_mat_rows - 1)
 led_num = 0
@@ -159,9 +159,9 @@ num_pix_rows, num_pix_cols = pix_x.shape
 pixels = np.empty([3,num_pixels])
 pixels = np.concatenate((pix_x.reshape([1,num_pixes]), pix_y.reshape([1,num_pixels]), pix_z.reshape([1,num_pixels])), axis = 0) # Make an array of all pixel coordinates
 
-# Compute pixel reflectivity, one pixed at a time
-pix_brightness = np.zeros([1, num_pixels]) 
-pix_reflectivity = np.zeros([1, num_pixels]) 
+# Compute the impact of every LED on pixels, one pixed at a time
+pix_led_impact_mat = np.zeros([num_pixels, num_leds])
+reflectivity_sigma = 45 # degrees. Surface reflectivity is modeled as a 2D gaussian with theta and phi as the variables   
 for pixel in range(0, num_pixels):
     for led in range(0, led_mat_rows * led_mat_cols):
         # Find if the pixel can get any light at all from the LED in question
@@ -171,16 +171,29 @@ for pixel in range(0, num_pixels):
                                         # because the pixel is on the "back side" of the sphere w.r.to this LED
             continue
         # Find the rotation matrix to be used to find new coordinates for vectors after rotating the axes to have z-axis 
-        # alighs with the vector representing the pixel point we are looking at in this iteration 
+        # align with the vector representing the pixel point we are looking at in this iteration 
         rot_theta = -pix_thetas[int(pixel/num_pix_cols), pixel%num_pix_cols] # Negative sign because we need to rotate all vectors
         rot_phi = -pix_phis[int(pixel/num_pix_cols), pixel%num_pix_cols]  # clockwise by this theta and phi
         rotation_mat1 = np.array([cos(rot_theta), -sin(rot_theta), 0],[sin(rot_theta), cos(rot_theta), 0],[0, 0, 1]) # Rotation around z axis
         rotation_mat2 = np.array([cos(rot_phi), 0, sin(rot_phi)], [0, 1, 0], [-sin(rot_phi), 0, cos(rot_phi)]]) # Rotation around y axis
-        tranlated_led_loc = led_plane[:,led:led+1] - pixels[:,pixel:pixel+1] # First we translate the origin to convert the incident light line to a vector
+        # Translate and rotate the incident light line and cam-pixel line
+        tranlated_led_loc  = led_plane[:,led:led+1] - pixels[:,pixel:pixel+1] # First we translate the origin to convert the incident light line to a vector
+        translated_cam_loc = cam_location - pixels[:,pixel:pixel+1]
         rotated_inc_vector = rotation_mat2 @ rotation_mat1 @ translated_led_loc # Then we rotate the incident light vector
-        # Now find the theta and phi of the incident light on this bases system            
-        inc_r, inc_theta, inc_phi = spherical3d(rotated_inc_vector[0,0], rotated_inc_vector[0,1], rotated_inc_vector[0,3])
-         
+        rotated_cam_vector = rotation_mat2 @ rotation_mat1 @ translated_cam_loc
+        # Now find the theta and phi of the incident light and camera-pix line on this bases system            
+        inc_r, inc_theta, inc_phi = spherical3d(rotated_inc_vector[0,0], rotated_inc_vector[0,1], rotated_inc_vector[0,3], angle_unit = 'degrees')
+        cam_r, cam_theta, cam_phi = spherical3d(rotated_cam_vector[0,0], rotated_cam_vector[0,1], rotated_cam_vector[0,3], angle_unit = 'degrees')
+        # Calculate the impact of the led in question on the pixel in question (impact accounts for reflected light and attenuation of incident and reflected lights
+        reflectivity_mu_theta = inc_theta + 180 # degrees. Incident light gets reflected primarily at incident azimuth+180 
+        reflectivity_mu_phi = inc_phi # degrees. As far as polar angle is concerned, it doesn't change, as the angle of reflection = angle of incidence
+        reflection_factor = (1/(2*pi*reflectivity_sigma**2)) * np.exp(-0.5 * ((cam_theta - reflectivity_mu_theta)**2+(cam_phi - reflectivity_mu_phi)**2) / reflectivity_sigma**2) 
+        inc_attenuation = 1/(la.norm(led_plane[:,led] - pixel[:,pixel])**2) 
+        cam_attenuation = 1/(la.norm(cam_location - pixel[:,pixel])**2)
+        pix_led_impact_mat[pixel, led] = cam_attenuation * reflection_factor * inc_attenuation
+
+led_brightness = np.zeros([num_leds, 1]) # lux value of LEDs in the mat
+pix_brightness = pix_led_impact_mat @ led_brightness 
 
 ## Visualization
 fig = plt.figure()
